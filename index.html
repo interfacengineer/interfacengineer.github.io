@@ -23,6 +23,10 @@
   #network { margin:clamp(1.5rem,5vh,3rem) clamp(.5rem,3vw,3rem) 0; position:relative; }
   svg { display:block; width:100%; height:auto; overflow:visible; }
   .edge { stroke:var(--ink); stroke-linecap:round; fill:none; }
+  .sechead { margin:clamp(2rem,6vh,3.5rem) clamp(.5rem,3vw,3rem) 0 var(--cx); font-size:.8rem; font-weight:400; letter-spacing:.18em; text-transform:uppercase; }
+  .axl { stroke:var(--ink); stroke-width:1; opacity:.45; vector-effect:non-scaling-stroke; }
+  .axt { fill:var(--ink); opacity:.6; font-family:inherit; }
+  .nlabel { fill:var(--ink); font-family:inherit; pointer-events:none; paint-order:stroke; stroke:var(--bg); stroke-linejoin:round; }
   .node .dot { fill:var(--ink); transition:transform .15s; transform-box:fill-box; transform-origin:center; pointer-events:none; }
   .node .hit { fill:transparent; cursor:grab; }
   .node:hover .dot, .node:focus-visible .dot, .node.tipped .dot { transform:scale(1.45); }
@@ -125,6 +129,7 @@
 
 <h1 class="lede">I build in vitro platforms that read out glial and neuroinflammatory state electrically, at single-cell resolution, to study the mechanisms that drive electrode-tissue interface degradation.</h1>
 
+<h2 class="sechead">Publications</h2>
 <section id="network" aria-label="Network of publications">
   <svg id="svg" role="group" aria-label="Interactive network. Each node is a paper; edges join papers with similar abstracts."></svg>
   <div id="tip" role="tooltip"></div>
@@ -155,20 +160,41 @@ const NET = {"width":1000,"height":520,"nodes":[{"id":"small-science-2026","titl
   const svg = document.getElementById('svg'), tip = document.getElementById('tip'), host = document.getElementById('network');
   const NS = 'http://www.w3.org/2000/svg', R = 9;
   let scale = 1, tipNode = null, lastType = 'mouse', drag = null, raf = null;
-  svg.setAttribute('viewBox', `0 0 ${NET.width} ${NET.height}`);
+  const ys = NET.nodes.map(n => n.y), TOP = Math.max(0, Math.floor(Math.min(...ys) - 60)), BOT = Math.min(NET.height, Math.ceil(Math.max(...ys) + 100));   // crop empty margins so the heading sits close to the network
+  svg.setAttribute('viewBox', `0 ${TOP} ${NET.width} ${BOT - TOP}`);
+  // x follows publication year on a linear axis (nodes sharing a year are spread apart a little); y keeps the precomputed similarity layout
+  const Y0 = 2019, Y1 = 2026, AX0 = 90, AX1 = 910, axX = yr => AX0 + (AX1-AX0) * (yr-Y0) / (Y1-Y0);
+  const sameYear = {}; NET.nodes.forEach(n => (sameYear[n.year] = sameYear[n.year] || []).push(n));
+  Object.values(sameYear).forEach(g => { g.sort((a, b) => a.y - b.y); g.forEach((n, i) => { n.x = axX(n.year) + (i - (g.length-1)/2) * 56; }); });
   const byId = Object.fromEntries(NET.nodes.map(n => [n.id, {...n, hx:n.x, hy:n.y, vx:0, vy:0}]));
   const nodes = Object.values(byId);
   const edges = NET.edges.map(e => {
     const s = byId[e.source], t = byId[e.target];
     return {s, t, w:e.weight, rest:Math.hypot(s.x-t.x, s.y-t.y)};
   });
+  // each edge is a gentle S-shaped curve (axon-like); the bend is fixed per edge so it stays stable while nodes move
+  edges.forEach((e, i) => { e.bend = (i % 2 ? -1 : 1) * (0.16 + 0.05 * ((i * 7) % 3)); });
+  // label placement per node: side of the dot the journal/year sits on
+  const LABEL = {'small-science-2026':'below', 'microsystems-2024':'right', 'spike-sorter-2025':'above', 'nuclear-membrane-2024':'above', 'nano-letters-2019':'above', 'organ-on-e-chip-2019':'below'};
+  // on phones the network is small, so use short journal names and sides that keep labels apart
+  const LABEL_SM = {'small-science-2026':['below', 0, 0], 'spike-sorter-2025':['above', 0, 0], 'nuclear-membrane-2024':['aboveL', -6, 0], 'microsystems-2024':['left', 0, 0], 'bios-review-2025':['below', 0, 0]};   // [side, dx, dy] in screen px
+  const ABBR = {'small-science-2026':'Small Sci.', 'spike-sorter-2025':'Adv. Mater. Interfaces', 'microsystems-2024':'Microsyst. Nanoeng.', 'bios-review-2025':'Biosens. Bioelectron.', 'nuclear-membrane-2024':'Adv. Funct. Mater.', 'organ-on-e-chip-2019':'Sci. Adv.', 'nano-letters-2019':'Nano Lett.'};
   const el = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 
-  edges.forEach(e => { e.el = el('line', {class:'edge', 'stroke-width':(0.8 + 5*Math.max(e.w,0)).toFixed(2)}); svg.appendChild(e.el); });
+  // faint year axis under the network
+  const axis = el('g', {class:'yaxis'}); svg.appendChild(axis);
+  const AY = BOT - 16;
+  axis.appendChild(el('line', {x1:AX0-20, y1:AY, x2:AX1+20, y2:AY, class:'axl'}));
+  for (let yr = Y0; yr <= Y1; yr++) {
+    const t = el('line', {x1:axX(yr), y1:AY-5, x2:axX(yr), y2:AY, class:'axl'}); const l = el('text', {x:axX(yr), y:AY+16, class:'axt', 'text-anchor':'middle'}); l.textContent = yr;
+    axis.append(t, l);
+  }
+  edges.forEach(e => { e.el = el('path', {class:'edge', 'stroke-width':(0.8 + 5*Math.max(e.w,0)).toFixed(2)}); svg.appendChild(e.el); });
   nodes.forEach(n => {
     const a = el('a', {class:'node', href:n.url, target:'_blank', rel:'noopener', 'aria-label':`${n.title} (${n.journal}, ${n.year})`});
     n.hit = el('circle', {class:'hit'}); n.dot = el('circle', {class:'dot'});
-    a.append(n.hit, n.dot);
+    n.lab = el('text', {class:'nlabel'});
+    a.append(n.hit, n.dot, n.lab);
     n.el = a; svg.appendChild(a);
     a.addEventListener('pointerenter', ev => { if (ev.pointerType === 'mouse') showTip(n); });
     a.addEventListener('pointerleave', ev => { if (ev.pointerType === 'mouse' && !drag) hideTip(); });
@@ -185,7 +211,15 @@ const NET = {"width":1000,"height":520,"nodes":[{"id":"small-science-2026","titl
   const coarse = matchMedia('(pointer: coarse)').matches;
   function measure() {
     scale = NET.width / (svg.clientWidth || NET.width);
-    nodes.forEach(n => { n.dot.setAttribute('r', (R * scale).toFixed(1)); n.hit.setAttribute('r', ((coarse ? 26 : 15) * scale).toFixed(1)); });
+    nodes.forEach(n => {
+      n.dot.setAttribute('r', (R * scale).toFixed(1)); n.hit.setAttribute('r', ((coarse ? 26 : 15) * scale).toFixed(1));
+      const sm = svg.clientWidth < 520, fs = (sm ? 9.5 : 12) * scale, g = (R + 7) * scale, L = n.lab;
+      L.textContent = sm ? (ABBR[n.id] || n.journal) : n.journal; const [side, ex, ey] = (sm && LABEL_SM[n.id]) || [LABEL[n.id] || 'below', 0, 0]; n.side = side;
+      axis.querySelectorAll('.axt').forEach(t => { t.setAttribute('font-size', ((sm ? 9 : 11) * scale).toFixed(1)); t.setAttribute('y', (AY + (sm ? 14 : 17) * scale).toFixed(1)); });
+      L.setAttribute('font-size', fs.toFixed(1)); L.setAttribute('stroke-width', (4 * scale).toFixed(1));
+      const pos = {below:[0, g + fs*0.8, 'middle'], above:[0, -g, 'middle'], right:[g, fs*0.35, 'start'], left:[-g, fs*0.35, 'end'], aboveL:[0, -g, 'end'], above:[0, -g, 'middle']}[n.side];
+      L.setAttribute('x', (pos[0] + ex*scale).toFixed(1)); L.setAttribute('y', (pos[1] + ey*scale).toFixed(1)); L.setAttribute('text-anchor', pos[2]);
+    });
   }
   addEventListener('resize', measure);
   document.addEventListener('pointerdown', ev => { if (ev.pointerType !== 'mouse' && !(ev.target.closest && ev.target.closest('.node'))) hideTip(); });
@@ -198,7 +232,7 @@ const NET = {"width":1000,"height":520,"nodes":[{"id":"small-science-2026","titl
     tip.append(n.title); const s = document.createElement('small'); s.textContent = `${n.journal}, ${n.year}`; tip.append(s);
     const box = host.getBoundingClientRect(), sc = svg.getScreenCTM();
     let x = n.x*sc.a + sc.e - box.left + 16, y = n.y*sc.d + sc.f - box.top + 16;
-    if (n.y > NET.height*0.45) y -= tip.offsetHeight + 32;   // flip above the node when low on the page
+    if (n.y > (TOP + BOT) / 2) y -= tip.offsetHeight + 32;   // flip above the node when low on the page
     x = Math.max(0, Math.min(x, box.width - tip.offsetWidth - 4));
     tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.style.opacity = 1;
   }
@@ -224,7 +258,10 @@ const NET = {"width":1000,"height":520,"nodes":[{"id":"small-science-2026","titl
   }
   const kick = () => { if (!raf) raf = requestAnimationFrame(step); };
   function draw() {
-    edges.forEach(e => { e.el.setAttribute('x1', e.s.x); e.el.setAttribute('y1', e.s.y); e.el.setAttribute('x2', e.t.x); e.el.setAttribute('y2', e.t.y); });
+    edges.forEach(e => {
+      const ax = e.s.x, ay = e.s.y, bx = e.t.x, by = e.t.y, dx = bx-ax, dy = by-ay, d = Math.hypot(dx, dy) || 1, o = d * e.bend, nx = -dy/d*o, ny = dx/d*o;
+      e.el.setAttribute('d', `M${ax.toFixed(1)},${ay.toFixed(1)}C${(ax+dx*.33+nx).toFixed(1)},${(ay+dy*.33+ny).toFixed(1)} ${(ax+dx*.67-nx).toFixed(1)},${(ay+dy*.67-ny).toFixed(1)} ${bx.toFixed(1)},${by.toFixed(1)}`);
+    });
     nodes.forEach(n => n.el.setAttribute('transform', `translate(${n.x},${n.y})`));
   }
   function startDrag(ev, n) {
@@ -232,7 +269,7 @@ const NET = {"width":1000,"height":520,"nodes":[{"id":"small-science-2026","titl
     const p0 = pt(ev), off = [n.x-p0.x, n.y-p0.y];
     const move = e => { const p = pt(e); if (Math.hypot(p.x-p0.x, p.y-p0.y) / scale > 7) n.moved = true;   // 7 screen px of travel = a drag, not a tap
                         if (!n.moved) return;
-                        n.x = Math.max(10, Math.min(NET.width-10, p.x+off[0])); n.y = Math.max(10, Math.min(NET.height-10, p.y+off[1])); showTip(n); kick(); };
+                        n.x = Math.max(10, Math.min(NET.width-10, p.x+off[0])); n.y = Math.max(TOP+10, Math.min(BOT-10, p.y+off[1])); showTip(n); kick(); };
     const up = () => { n.el.removeEventListener('pointermove', move); n.el.removeEventListener('pointerup', up); n.el.removeEventListener('pointercancel', up);
                        n.el.classList.remove('dragging'); drag = null; kick(); setTimeout(() => n.moved = false, 0); };
     n.el.addEventListener('pointermove', move); n.el.addEventListener('pointerup', up); n.el.addEventListener('pointercancel', up);
